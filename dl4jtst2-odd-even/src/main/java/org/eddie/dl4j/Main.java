@@ -1,29 +1,37 @@
 package org.eddie.dl4j;
 
-import org.deeplearning4j.nn.conf.Updater;
-import org.datavec.api.records.reader.RecordReader;
+import java.io.File;
 import org.datavec.api.records.reader.impl.csv.CSVRecordReader;
+import org.datavec.api.records.reader.RecordReader;
 import org.datavec.api.split.FileSplit;
 import org.datavec.api.util.ClassPathResource;
+import org.deeplearning4j.api.storage.StatsStorage;
 import org.deeplearning4j.datasets.datavec.RecordReaderDataSetIterator;
 import org.deeplearning4j.eval.Evaluation;
 import org.deeplearning4j.nn.api.OptimizationAlgorithm;
-import org.deeplearning4j.nn.conf.MultiLayerConfiguration;
-import org.deeplearning4j.nn.conf.NeuralNetConfiguration;
 import org.deeplearning4j.nn.conf.layers.DenseLayer;
 import org.deeplearning4j.nn.conf.layers.OutputLayer;
+import org.deeplearning4j.nn.conf.MultiLayerConfiguration;
+import org.deeplearning4j.nn.conf.NeuralNetConfiguration;
+import org.deeplearning4j.nn.conf.Updater;
 import org.deeplearning4j.nn.multilayer.MultiLayerNetwork;
 import org.deeplearning4j.nn.weights.WeightInit;
 import org.deeplearning4j.optimize.listeners.ScoreIterationListener;
+import org.deeplearning4j.ui.api.UIServer;
+import org.deeplearning4j.ui.stats.StatsListener;
+import org.deeplearning4j.ui.storage.InMemoryStatsStorage;
 import org.nd4j.linalg.activations.Activation;
 import org.nd4j.linalg.api.ndarray.INDArray;
 import org.nd4j.linalg.dataset.api.DataSet;
 import org.nd4j.linalg.dataset.api.iterator.DataSetIterator;
 import org.nd4j.linalg.lossfunctions.LossFunctions;
-import java.io.File;
 
 /**
  * attempt 8-bit odd/even detection
+ *
+ * Note that we run the UI server as well, and that we prevent the application form existing, allowing us to
+ * browse to http://localhost:9000/train    (as per https://deeplearning4j.org/visualization)
+ * and inspect model training behavior/performance
  */
 public class Main {
 
@@ -39,6 +47,18 @@ public class Main {
 
         final String filenameTrain  = new ClassPathResource("/classification/odd_even_data_train.csv").getFile().getPath();
         final String filenameTest  = new ClassPathResource("/classification/odd_even_data_eval.csv").getFile().getPath();
+
+        // ====================================================================
+        //Initialize the user interface backend
+        UIServer uiServer = UIServer.getInstance();
+
+        //Configure where the network information (gradients, score vs. time etc) is to be stored. Here: store in memory.
+        StatsStorage statsStorage = new InMemoryStatsStorage();         //Alternative: new FileStatsStorage(File), for saving and loading later
+
+        //Attach the StatsStorage instance to the UI: this allows the contents of the StatsStorage to be visualized
+        uiServer.attach(statsStorage);
+
+        // ====================================================================
 
         //Load the training data:
         RecordReader rr = new CSVRecordReader();
@@ -70,7 +90,16 @@ public class Main {
 
         MultiLayerNetwork model = new MultiLayerNetwork(conf);
         model.init();
-        model.setListeners(new ScoreIterationListener(10));  //Print score every 10 parameter updates
+
+        // ====================================================================
+        // ==== listener(s) ====
+        // model.setListeners(new ScoreIterationListener(10));  //Print score every 10 parameter updates
+
+        //Then add the StatsListener to collect this information from the network, as it trains
+        model.setListeners(new StatsListener(statsStorage), new ScoreIterationListener(10));
+        // ====================================================================
+
+        System.out.println("Train model....");
 
         System.out.println("Train model....");
         long trainStart = System.currentTimeMillis();
@@ -93,5 +122,9 @@ public class Main {
 
         //Print the evaluation statistics
         System.out.println(eval.stats());
+
+        // wait for a carriage return press (to keep the web UI alive)
+        System.out.println("Press <return> to exit...");
+        System.in.read();
     }
 }
